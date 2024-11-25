@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1069447182144",
+    "project_id": "egovernmentserviceportal-215b5",
+    "storage_bucket": "egovernmentserviceportal-215b5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1069447182144:android:7d1dd36a6c628f5a742ca5",
+        "android_client_info": {
+          "package_name": "za.co.varsitycollege.st10090442.egovernmentserviceportal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2wnM1dxkhiC4fKhdCoH0wpzfUAakvRCU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
