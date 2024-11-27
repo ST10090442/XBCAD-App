@@ -22,7 +22,6 @@ class SocialDevelopmentActivity : AppCompatActivity() {
         }
 
         binding.btnScheduleAppointment.setOnClickListener {
-            // TODO: Implement schedule appointment functionality
             startActivity(Intent(this, SocialScheduleAppointmentActivity::class.java))
         }
     }

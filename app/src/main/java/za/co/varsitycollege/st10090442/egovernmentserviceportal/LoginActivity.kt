@@ -1,20 +1,21 @@
 package za.co.varsitycollege.st10090442.egovernmentserviceportal
 
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
-import com.google.firebase.auth.PhoneAuthProvider.OnVerificationStateChangedCallbacks
-import com.google.firebase.auth.PhoneAuthProvider.PhoneAuthOptions
-import com.google.firebase.auth.PhoneAuthProvider.ForceResendingToken
-import com.google.firebase.auth.FirebaseException
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.databinding.ActivityLoginBinding
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.utils.Validators
 import java.util.concurrent.Executor
@@ -35,60 +36,42 @@ class LoginActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         setupBiometric()
         setupClickListeners()
+        checkBiometricAvailability()
     }
 
     private fun setupBiometric() {
         executor = ContextCompat.getMainExecutor(this)
-        biometricPrompt = BiometricPrompt(this, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    runOnUiThread {
-                        Toast.makeText(applicationContext, "Authentication error: $errString", 
-                            Toast.LENGTH_SHORT).show()
-                    }
-                }
+        biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                showToast("Authentication error: $errString")
+            }
 
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    runOnUiThread {
-                        // Check if user exists in Firebase before proceeding
-                        auth.currentUser?.let {
-                            startActivity(Intent(this@LoginActivity, MainActivity::class.java))
-                            finish()
-                        } ?: run {
-                            Toast.makeText(applicationContext, 
-                                "Please login with credentials first", 
-                                Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                navigateToMainActivity()
+            }
 
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    runOnUiThread {
-                        Toast.makeText(applicationContext, "Authentication failed", 
-                            Toast.LENGTH_SHORT).show()
-                    }
-                }
-            })
+            override fun onAuthenticationFailed() {
+                showToast("Fingerprint not recognized")
+            }
+        })
 
         promptInfo = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Biometric login")
             .setSubtitle("Log in using your biometric credential")
-            .setNegativeButtonText("Use password instead")
+            .setNegativeButtonText("Cancel")
             .build()
+    }
 
-        // Check if biometric authentication is available
+    private fun checkBiometricAvailability() {
         val biometricManager = BiometricManager.from(this)
         when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)) {
-            BiometricManager.BIOMETRIC_SUCCESS ->
+            BiometricManager.BIOMETRIC_SUCCESS -> {
                 binding.btnFingerprint.isEnabled = true
-            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE ->
-                binding.btnFingerprint.isEnabled = false
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-                binding.btnFingerprint.isEnabled = false
-                Toast.makeText(this, "No fingerprint enrolled", Toast.LENGTH_LONG).show()
+                binding.btnFingerprint.visibility = View.VISIBLE
+            }
+            else -> {
+                binding.btnFingerprint.visibility = View.GONE
+                showToast("Biometric authentication not available")
             }
         }
     }
@@ -102,9 +85,10 @@ class LoginActivity : AppCompatActivity() {
             val email = binding.etEmail.text.toString().trim()
             val idNumber = binding.etIdNumber.text.toString().trim()
             val password = binding.etPassword.text.toString()
+            val phoneNumber = binding.etPhone.text.toString().trim()
 
-            if (validateInputs(email, idNumber, password)) {
-                loginUser(email, password)
+            if (validateInputs(email, idNumber, password, phoneNumber)) {
+                loginUser(email, password, phoneNumber)
             }
         }
 
@@ -114,88 +98,125 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    private fun validateInputs(email: String, idNumber: String, password: String): Boolean {
-        when {
+    private fun validateInputs(email: String, idNumber: String, password: String, phoneNumber: String): Boolean {
+        return when {
             email.isEmpty() -> {
                 binding.etEmail.error = "Email required"
-                return false
+                false
             }
             idNumber.isEmpty() -> {
                 binding.etIdNumber.error = "ID Number required"
-                return false
+                false
             }
             !Validators.isValidSouthAfricanId(idNumber) -> {
                 binding.etIdNumber.error = "ID Number must be 13 digits"
-                return false
+                false
             }
             password.isEmpty() -> {
                 binding.etPassword.error = "Password required"
-                return false
+                false
             }
+            phoneNumber.isEmpty() -> {
+                binding.etPhone.error = "Phone number required"
+                false
+            }
+            !isValidSouthAfricanPhoneNumber(phoneNumber) -> {
+                binding.etPhone.error = "Enter valid SA number (e.g., 0821234567)"
+                false
+            }
+            else -> true
         }
-        return true
     }
 
-    private fun loginUser(email: String, password: String) {
+    private fun isValidSouthAfricanPhoneNumber(phone: String): Boolean {
+        val regex = """^(?:(?:\+27|27)|0)([0-9]{9})$""".toRegex()
+        return regex.matches(phone)
+    }
+
+    private fun loginUser(email: String, password: String, phoneNumber: String) {
+        if (!isNetworkAvailable()) {
+            showToast("No internet connection available")
+            return
+        }
+
+        binding.btnLogin.isEnabled = false
         auth.signInWithEmailAndPassword(email, password)
-            .addOnCompleteListener(this) { task ->
+            .addOnCompleteListener { task ->
+                binding.btnLogin.isEnabled = true
                 if (task.isSuccessful) {
-                    initiatePhoneVerification()
+                    startPhoneVerification(phoneNumber)
                 } else {
-                    Toast.makeText(this, 
-                        "Authentication failed: ${task.exception?.message}", 
-                        Toast.LENGTH_LONG).show()
+                    showToast("Login failed: ${task.exception?.message}")
                 }
             }
     }
 
-    private fun initiatePhoneVerification() {
-        val phoneNumber = "+27" + binding.etPhone.text.toString().trim()
-        
+    private fun startPhoneVerification(phoneNumber: String) {
         val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
             override fun onVerificationCompleted(credential: PhoneAuthCredential) {
                 signInWithPhoneAuthCredential(credential)
             }
 
             override fun onVerificationFailed(e: FirebaseException) {
-                Toast.makeText(this@LoginActivity, 
-                    "Verification failed: ${e.message}", 
-                    Toast.LENGTH_SHORT).show()
+                binding.btnLogin.isEnabled = true
+                if (e is FirebaseAuthInvalidCredentialsException) {
+                    showToast("Invalid phone number format")
+                } else {
+                    showToast("Verification failed: ${e.message}")
+                }
             }
 
-            override fun onCodeSent(
-                verificationId: String,
-                token: PhoneAuthProvider.ForceResendingToken
-            ) {
+            override fun onCodeSent(verificationId: String, token: PhoneAuthProvider.ForceResendingToken) {
                 val intent = Intent(this@LoginActivity, SMSVerificationActivity::class.java).apply {
                     putExtra("verificationId", verificationId)
                     putExtra("phoneNumber", phoneNumber)
+                    putExtra("email", binding.etEmail.text.toString().trim())
+                    putExtra("password", binding.etPassword.text.toString())
+                    putExtra("isRegistration", false)
                 }
                 startActivity(intent)
             }
         }
 
+        val formattedPhone = if (!phoneNumber.startsWith("+")) "+$phoneNumber" else phoneNumber
         val options = PhoneAuthOptions.newBuilder(auth)
-            .setPhoneNumber(phoneNumber)
+            .setPhoneNumber(formattedPhone)
             .setTimeout(60L, TimeUnit.SECONDS)
             .setActivity(this)
             .setCallbacks(callbacks)
             .build()
+
         PhoneAuthProvider.verifyPhoneNumber(options)
     }
 
     private fun signInWithPhoneAuthCredential(credential: PhoneAuthCredential) {
-        auth.currentUser?.linkWithCredential(credential)
-            ?.addOnCompleteListener(this) { task ->
+        auth.signInWithCredential(credential)
+            .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
-                    startActivity(Intent(this, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-                    finish()
+                    navigateToMainActivity()
                 } else {
-                    Toast.makeText(this, 
-                        "Verification failed: ${task.exception?.message}", 
-                        Toast.LENGTH_SHORT).show()
+                    showToast("Verification failed: ${task.exception?.message}")
                 }
             }
     }
+
+    private fun isNetworkAvailable(): Boolean {
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        return capabilities != null && (
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                )
+    }
+
+    private fun navigateToMainActivity() {
+        startActivity(Intent(this, MainActivity::class.java))
+        finish()
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 }
+

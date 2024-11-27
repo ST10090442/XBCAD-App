@@ -70,6 +70,16 @@
             android:inputType="textPassword"
             android:padding="12dp" />
 
+        <EditText
+            android:id="@+id/etPhone"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="@android:color/white"
+            android:hint="Phone Number (e.g. 721234567)"
+            android:inputType="phone"
+            android:padding="12dp" />
+
         <TextView
             android:id="@+id/tvForgotPassword"
             android:layout_width="wrap_content"
@@ -87,7 +97,8 @@
             android:layout_marginBottom="16dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Login with fingerprint"
-            android:src="@drawable/ic_fingerprint" />
+            android:src="@drawable/ic_fingerprint"
+            android:visibility="visible" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnLogin"
@@ -107,6 +118,13 @@
             android:text="Or Register"
             android:textAlignment="center"
             android:textColor="@color/white" />
+
+        <CheckBox
+            android:id="@+id/cbEnableBiometric"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Enable fingerprint login"
+            android:visibility="gone"/>
 
     </LinearLayout>
 

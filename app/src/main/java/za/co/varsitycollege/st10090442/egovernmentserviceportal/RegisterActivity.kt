@@ -6,14 +6,20 @@ import android.util.Patterns
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
-import com.google.firebase.auth.FirebaseAuthWeakPasswordException
+import com.google.firebase.auth.*
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.FirebaseException
+import java.util.concurrent.TimeUnit
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.databinding.ActivityRegisterBinding
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.utils.Validators
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import com.google.android.gms.auth.api.phone.SmsRetriever
+import com.google.android.gms.auth.api.phone.SmsRetrieverClient
 
 class RegisterActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
@@ -25,192 +31,219 @@ class RegisterActivity : AppCompatActivity() {
         binding = ActivityRegisterBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Initialize Firebase instances
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
-
         setupClickListeners()
     }
 
     private fun setupClickListeners() {
-        binding.btnRegister.setOnClickListener {
-            if (validateInputs()) {
-                registerUser()
+        binding.apply {
+            btnRegister.setOnClickListener {
+                if (validateInputs()) {
+                    initiatePhoneVerification()
+                }
             }
-        }
-
-        binding.tvLogin.setOnClickListener {
-            startActivity(Intent(this, LoginActivity::class.java))
-            finish()
+            tvLogin.setOnClickListener {
+                startActivity(Intent(this@RegisterActivity, LoginActivity::class.java))
+                finish()
+            }
         }
     }
 
     private fun validateInputs(): Boolean {
-        val idNumber = binding.etIdNumber.text.toString().trim()
-        val fullNames = binding.etFullNames.text.toString().trim()
-        val email = binding.etEmail.text.toString().trim()
-        val phone = binding.etPhone.text.toString().trim()
-        val password = binding.etPassword.text.toString()
-        val confirmPassword = binding.etConfirmPassword.text.toString()
+        binding.apply {
+            val idNumber = etIdNumber.text.toString().trim()
+            val fullNames = etFullNames.text.toString().trim()
+            val email = etEmail.text.toString().trim()
+            val phone = etPhone.text.toString().trim()
+            val password = etPassword.text.toString()
+            val confirmPassword = etConfirmPassword.text.toString()
 
-        // Check empty fields
-        when {
-            idNumber.isEmpty() -> {
-                binding.etIdNumber.error = "ID Number required"
-                return false
-            }
-            fullNames.isEmpty() -> {
-                binding.etFullNames.error = "Full Names required"
-                return false
-            }
-            email.isEmpty() -> {
-                binding.etEmail.error = "Email required"
-                return false
-            }
-            phone.isEmpty() -> {
-                binding.etPhone.error = "Phone Number required"
-                return false
-            }
-            password.isEmpty() -> {
-                binding.etPassword.error = "Password required"
-                return false
-            }
-            confirmPassword.isEmpty() -> {
-                binding.etConfirmPassword.error = "Confirm Password required"
-                return false
+            return when {
+                idNumber.isEmpty() -> {
+                    etIdNumber.error = "ID Number required"
+                    false
+                }
+                !Validators.isValidSouthAfricanId(idNumber) -> {
+                    etIdNumber.error = "Invalid ID Number"
+                    false
+                }
+                fullNames.isEmpty() -> {
+                    etFullNames.error = "Full Names required"
+                    false
+                }
+                email.isEmpty() -> {
+                    etEmail.error = "Email required"
+                    false
+                }
+                !Patterns.EMAIL_ADDRESS.matcher(email).matches() -> {
+                    etEmail.error = "Invalid email format"
+                    false
+                }
+                phone.isEmpty() -> {
+                    etPhone.error = "Phone Number required"
+                    false
+                }
+                !isValidSouthAfricanPhoneNumber(phone) -> {
+                    etPhone.error = "Enter valid SA number (e.g., 0821234567)"
+                    false
+                }
+                password.isEmpty() -> {
+                    etPassword.error = "Password required"
+                    false
+                }
+                password.length < 6 -> {
+                    etPassword.error = "Password must be at least 6 characters"
+                    false
+                }
+                confirmPassword.isEmpty() -> {
+                    etConfirmPassword.error = "Confirm Password required"
+                    false
+                }
+                password != confirmPassword -> {
+                    etConfirmPassword.error = "Passwords do not match"
+                    false
+                }
+                else -> true
             }
         }
-
-        // Validate email format
-        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            binding.etEmail.error = "Invalid email format"
-            return false
-        }
-
-        // Validate password
-        if (password.length < 6) {
-            binding.etPassword.error = "Password must be at least 6 characters"
-            return false
-        }
-
-        // Check if passwords match
-        if (password != confirmPassword) {
-            binding.etConfirmPassword.error = "Passwords do not match"
-            return false
-        }
-
-        if (!Validators.isValidSouthAfricanId(idNumber)) {
-            binding.etIdNumber.error = "ID Number must be 13 digits"
-            return false
-        }
-
-        return true
     }
 
-    private fun registerUser() {
-        if (!validateInputs()) {
+    private fun initiatePhoneVerification() {
+        if (!isNetworkAvailable()) {
+            showToast("Please check your internet connection")
             return
         }
 
-        // Disable button to prevent double submission
-        binding.btnRegister.isEnabled = false
-        
-        val email = binding.etEmail.text.toString().trim()
-        val password = binding.etPassword.text.toString()
+        binding.apply {
+            btnRegister.isEnabled = false
+            val phoneNumber = etPhone.text.toString().trim()
+            val formattedPhone = formatPhoneNumber(phoneNumber)
 
-        // First check if email exists
-        auth.fetchSignInMethodsForEmail(email)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val signInMethods = task.result?.signInMethods ?: emptyList<String>()
-                    if (signInMethods.isNotEmpty()) {
-                        // Email exists
-                        binding.btnRegister.isEnabled = true
-                        binding.etEmail.error = "Email already in use"
-                        Toast.makeText(this, "This email is already registered", Toast.LENGTH_LONG).show()
-                    } else {
-                        // Email doesn't exist, proceed with registration
-                        createNewUser(email, password)
+            val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+                override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                    btnRegister.isEnabled = true
+                    createUserWithEmail()
+                }
+
+                override fun onVerificationFailed(e: FirebaseException) {
+                    btnRegister.isEnabled = true
+                    when (e) {
+                        is FirebaseAuthInvalidCredentialsException -> {
+                            etPhone.error = "Invalid phone number"
+                            showToast("Please enter a valid phone number")
+                        }
+                        else -> showToast("Verification failed: ${e.message}")
                     }
-                } else {
-                    // Error checking email
-                    binding.btnRegister.isEnabled = true
-                    Toast.makeText(this, "Error checking email: ${task.exception?.message}", Toast.LENGTH_LONG).show()
                 }
-            }
-    }
 
-    private fun createNewUser(email: String, password: String) {
-        auth.createUserWithEmailAndPassword(email, password)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val user = auth.currentUser
-                    saveUserData(user?.uid)
-                } else {
-                    binding.btnRegister.isEnabled = true
-                    handleRegistrationError(task.exception)
-                }
-            }
-    }
-
-    private fun saveUserData(userId: String?) {
-        userId?.let {
-            val userData = hashMapOf(
-                "idNumber" to binding.etIdNumber.text.toString().trim(),
-                "fullNames" to binding.etFullNames.text.toString().trim(),
-                "email" to binding.etEmail.text.toString().trim(),
-                "phone" to binding.etPhone.text.toString().trim(),
-                "createdAt" to FieldValue.serverTimestamp()
-            )
-
-            db.collection("users").document(it)
-                .set(userData)
-                .addOnSuccessListener {
-                    Toast.makeText(this, "Registration successful!", Toast.LENGTH_SHORT).show()
-                    
-                    // Navigate to MainActivity
-                    val intent = Intent(this, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                override fun onCodeSent(verificationId: String, token: PhoneAuthProvider.ForceResendingToken) {
+                    val intent = Intent(this@RegisterActivity, SMSVerificationActivity::class.java).apply {
+                        putExtra("verificationId", verificationId)
+                        putExtra("phoneNumber", etPhone.text.toString().trim())
+                        putExtra("email", etEmail.text.toString().trim())
+                        putExtra("password", etPassword.text.toString())
+                        putExtra("idNumber", etIdNumber.text.toString().trim())
+                        putExtra("fullNames", etFullNames.text.toString().trim())
+                        putExtra("isRegistration", true)
                     }
                     startActivity(intent)
-                    finish()
                 }
-                .addOnFailureListener { e ->
-                    binding.btnRegister.isEnabled = true
-                    Toast.makeText(this, 
-                        "Error saving user data: ${e.message}", 
-                        Toast.LENGTH_LONG
-                    ).show()
+            }
+
+            try {
+                val options = PhoneAuthOptions.newBuilder(auth)
+                    .setPhoneNumber(formattedPhone)
+                    .setTimeout(60L, TimeUnit.SECONDS)
+                    .setActivity(this@RegisterActivity)
+                    .setCallbacks(callbacks)
+                    .build()
+
+                PhoneAuthProvider.verifyPhoneNumber(options)
+            } catch (e: Exception) {
+                btnRegister.isEnabled = true
+                showToast("Error: ${e.message}")
+            }
+        }
+    }
+
+    private fun createUserWithEmail() {
+        binding.apply {
+            val email = etEmail.text.toString().trim()
+            val password = etPassword.text.toString()
+
+            auth.createUserWithEmailAndPassword(email, password)
+                .addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        saveUserToDatabase(auth.currentUser?.uid)
+                    } else {
+                        btnRegister.isEnabled = true
+                        handleRegistrationError(task.exception)
+                    }
                 }
+        }
+    }
+
+    private fun saveUserToDatabase(userId: String?) {
+        userId?.let { uid ->
+            binding.apply {
+                val userData = hashMapOf(
+                    "idNumber" to etIdNumber.text.toString().trim(),
+                    "fullNames" to etFullNames.text.toString().trim(),
+                    "email" to etEmail.text.toString().trim(),
+                    "phone" to etPhone.text.toString().trim(),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+
+                db.collection("users").document(uid)
+                    .set(userData)
+                    .addOnSuccessListener {
+                        showToast("Registration successful!")
+                        startActivity(Intent(this@RegisterActivity, MainActivity::class.java))
+                        finish()
+                    }
+                    .addOnFailureListener { e ->
+                        btnRegister.isEnabled = true
+                        showToast("Error saving user data: ${e.message}")
+                    }
+            }
         } ?: run {
             binding.btnRegister.isEnabled = true
-            Toast.makeText(this, "Error: User ID is null", Toast.LENGTH_LONG).show()
+            showToast("Error: User ID is null")
             auth.signOut()
         }
     }
 
     private fun handleRegistrationError(exception: Exception?) {
-        binding.btnRegister.isEnabled = true
-        when (exception) {
-            is FirebaseAuthWeakPasswordException -> {
-                binding.etPassword.error = "Password must be at least 6 characters"
-                Toast.makeText(this, "Password is too weak", Toast.LENGTH_LONG).show()
-            }
-            is FirebaseAuthInvalidCredentialsException -> {
-                binding.etEmail.error = "Invalid email format"
-                Toast.makeText(this, "Invalid email format", Toast.LENGTH_LONG).show()
-            }
-            is FirebaseAuthUserCollisionException -> {
-                binding.etEmail.error = "Email already in use"
-                Toast.makeText(this, "This email is already registered", Toast.LENGTH_LONG).show()
-            }
-            else -> {
-                Toast.makeText(
-                    this,
-                    "Registration failed: ${exception?.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+        binding.apply {
+            when (exception) {
+                is FirebaseAuthWeakPasswordException -> etPassword.error = "Password too weak"
+                is FirebaseAuthInvalidCredentialsException -> etEmail.error = "Invalid email format"
+                is FirebaseAuthUserCollisionException -> etEmail.error = "Email already in use"
+                else -> showToast("Registration failed: ${exception?.message}")
             }
         }
+    }
+
+    private fun isValidSouthAfricanPhoneNumber(phone: String): Boolean =
+        "^((?:\\+27|27)|0)[6-8][0-9]{8}$".toRegex().matches(phone)
+
+    private fun formatPhoneNumber(phone: String): String = when {
+        phone.startsWith("+27") -> phone
+        phone.startsWith("27") -> "+$phone"
+        phone.startsWith("0") -> "+27${phone.substring(1)}"
+        else -> "+27$phone"
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        return connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)?.run {
+            hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || 
+            hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+        } ?: false
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }

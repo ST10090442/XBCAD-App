@@ -47,16 +47,12 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 
     // Firebase
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.messaging)
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-phone-auth")
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     implementation ("androidx.gridlayout:gridlayout:1.0.0")
     implementation ("androidx.cardview:cardview:1.0.0")
@@ -67,5 +63,10 @@ dependencies {
     implementation ("androidx.biometric:biometric:1.1.0")
 
     implementation("com.squareup.okhttp3:okhttp:4.11.0")
+
+    // Add these dependencies for SMS Retriever
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.0.1")
+    implementation ("com.google.android.gms:play-services-auth:21.2.0")
+
 
 }
