@@ -56,6 +56,7 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-phone-auth")
 
     implementation ("androidx.gridlayout:gridlayout:1.0.0")
     implementation ("androidx.cardview:cardview:1.0.0")

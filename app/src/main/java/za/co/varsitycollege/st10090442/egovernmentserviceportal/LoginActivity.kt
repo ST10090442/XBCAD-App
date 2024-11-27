@@ -8,9 +8,17 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
+import com.google.firebase.auth.PhoneAuthProvider.OnVerificationStateChangedCallbacks
+import com.google.firebase.auth.PhoneAuthProvider.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider.ForceResendingToken
+import com.google.firebase.auth.FirebaseException
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.databinding.ActivityLoginBinding
 import za.co.varsitycollege.st10090442.egovernmentserviceportal.utils.Validators
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 
 class LoginActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
@@ -132,10 +140,61 @@ class LoginActivity : AppCompatActivity() {
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
-                    startActivity(Intent(this, MainActivity::class.java))
+                    initiatePhoneVerification()
+                } else {
+                    Toast.makeText(this, 
+                        "Authentication failed: ${task.exception?.message}", 
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+    }
+
+    private fun initiatePhoneVerification() {
+        val phoneNumber = "+27" + binding.etPhone.text.toString().trim()
+        
+        val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+            override fun onVerificationCompleted(credential: PhoneAuthCredential) {
+                signInWithPhoneAuthCredential(credential)
+            }
+
+            override fun onVerificationFailed(e: FirebaseException) {
+                Toast.makeText(this@LoginActivity, 
+                    "Verification failed: ${e.message}", 
+                    Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onCodeSent(
+                verificationId: String,
+                token: PhoneAuthProvider.ForceResendingToken
+            ) {
+                val intent = Intent(this@LoginActivity, SMSVerificationActivity::class.java).apply {
+                    putExtra("verificationId", verificationId)
+                    putExtra("phoneNumber", phoneNumber)
+                }
+                startActivity(intent)
+            }
+        }
+
+        val options = PhoneAuthOptions.newBuilder(auth)
+            .setPhoneNumber(phoneNumber)
+            .setTimeout(60L, TimeUnit.SECONDS)
+            .setActivity(this)
+            .setCallbacks(callbacks)
+            .build()
+        PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    private fun signInWithPhoneAuthCredential(credential: PhoneAuthCredential) {
+        auth.currentUser?.linkWithCredential(credential)
+            ?.addOnCompleteListener(this) { task ->
+                if (task.isSuccessful) {
+                    startActivity(Intent(this, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
                     finish()
                 } else {
-                    Toast.makeText(this, "Authentication failed: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, 
+                        "Verification failed: ${task.exception?.message}", 
+                        Toast.LENGTH_SHORT).show()
                 }
             }
     }
